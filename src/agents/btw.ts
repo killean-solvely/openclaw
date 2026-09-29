@@ -39,7 +39,10 @@ import { readBtwTranscriptMessages, resolveBtwSessionTranscriptPath } from "./bt
 import { executePreparedCliRun } from "./cli-runner/execute.runtime.js";
 import { prepareCliRunContext } from "./cli-runner/prepare.runtime.js";
 import { EmbeddedBlockChunker, type BlockReplyChunking } from "./embedded-agent-block-chunker.js";
-import { resolveModelAsync } from "./embedded-agent-runner/model.js";
+import {
+  createEmptyAgentDiscoveryStores,
+  resolveModelAsync,
+} from "./embedded-agent-runner/model.js";
 import { getActiveEmbeddedRunSnapshot } from "./embedded-agent-runner/runs.js";
 import { resolveEmbeddedAgentStream } from "./embedded-agent-runner/stream-resolution.js";
 import { resolvePluginHarnessPolicyToolsAllow } from "./harness/execution-environment.js";
@@ -431,7 +434,10 @@ async function resolveRuntimeModel(params: {
 }> {
   const preparedModelRuntime = params.preparedModelRuntime;
   const { config: cfg, agentDir, workspaceDir } = preparedModelRuntime;
-  const { authStorage, modelRegistry } = preparedModelRuntime.createStores();
+  const { authStorage, modelRegistry } =
+    params.harnessAuthBootstrap === "plugin"
+      ? createEmptyAgentDiscoveryStores()
+      : preparedModelRuntime.createStores();
   const resolution = await resolveModelAsync(params.provider, params.model, agentDir, cfg, {
     abortSignal: params.abortSignal,
     authStorage,
@@ -440,6 +446,7 @@ async function resolveRuntimeModel(params: {
     workspaceDir,
     skipAgentDiscovery: true,
     allowBundledStaticCatalogFallback: true,
+    harnessAuthBootstrap: params.harnessAuthBootstrap,
     preferBundledStaticCatalogTransport: Boolean(
       params.harnessId && params.harnessId !== "openclaw",
     ),
@@ -450,6 +457,30 @@ async function resolveRuntimeModel(params: {
   }
   const runtimeProvider = model.provider;
   const runtimeModelId = model.id;
+
+  if (params.harnessAuthBootstrap === "plugin") {
+    const authProfileStore: AuthProfileStore = { version: 1, profiles: {} };
+    return {
+      model,
+      authProfileStore,
+      runtimeAuthPreparation: prepareAgentRuntimeAuth({
+        provider: runtimeProvider,
+        modelId: runtimeModelId,
+        modelApi: model.api,
+        modelBaseUrl: model.baseUrl,
+        config: cfg,
+        agentId: params.agentId,
+        agentDir,
+        workspaceDir,
+        authProfileStore,
+        harnessId: params.harnessId,
+        harnessRuntime: params.harnessId,
+        harnessAuthBootstrap: params.harnessAuthBootstrap,
+      }),
+      authStorage,
+      modelRegistry,
+    };
+  }
 
   const authSelection = await resolveSessionAuthSelection({
     cfg,
@@ -780,9 +811,9 @@ export async function runBtwSideQuestion(
     };
     const harness = await prepareHarness(params.provider, params.model);
     let runtimeSelection: Awaited<ReturnType<typeof resolveRuntimeModel>> | undefined;
-    const resolveRuntimeSelection = async () => {
-      if (!runtimeSelection) {
-        runtimeSelection = await resolveRuntimeModel({
+    const resolveRuntimeSelection = async (selectedHarness = harness) => {
+      if (!runtimeSelection || selectedHarness !== harness) {
+        const selectedRuntime = await resolveRuntimeModel({
           abortSignal: params.opts?.abortSignal,
           provider: params.provider,
           model: params.model,
@@ -792,10 +823,14 @@ export async function runBtwSideQuestion(
           sessionKey: params.sessionKey,
           storePath: params.storePath,
           isNewSession: params.isNewSession,
-          harnessId: harness.id,
-          harnessAuthBootstrap: harness.authBootstrap,
+          harnessId: selectedHarness.id,
+          harnessAuthBootstrap: selectedHarness.authBootstrap,
           preparedModelRuntime,
         });
+        if (selectedHarness === harness) {
+          runtimeSelection = selectedRuntime;
+        }
+        return selectedRuntime;
       }
       return runtimeSelection;
     };
@@ -866,18 +901,24 @@ export async function runBtwSideQuestion(
         senderE164: params.senderE164,
       });
       const authProfileStoreSelection =
-        selectedHarness.id === harness.id
+        selectedHarness.id === harness.id &&
+        selectedHarness.authBootstrap === harness.authBootstrap
           ? undefined
-          : resolveBtwAuthProfileStore({
-              cfg: params.cfg,
-              provider: runtime.model.provider,
-              modelId: runtime.model.id,
-              agentId: sessionAgentId,
-              agentDir: params.agentDir,
-              workspaceDir,
-              authProfileId: runtime.authProfileId,
-              authProfileIdSource: runtime.authProfileIdSource,
-            });
+          : selectedHarness.authBootstrap === "plugin"
+            ? {
+                store: { version: 1, profiles: {} } satisfies AuthProfileStore,
+                ignoreAutoPreferredProfile: false,
+              }
+            : resolveBtwAuthProfileStore({
+                cfg: params.cfg,
+                provider: runtime.model.provider,
+                modelId: runtime.model.id,
+                agentId: sessionAgentId,
+                agentDir: params.agentDir,
+                workspaceDir,
+                authProfileId: runtime.authProfileId,
+                authProfileIdSource: runtime.authProfileIdSource,
+              });
       let runtimeAuthPreparation = runtime.runtimeAuthPreparation;
       if (authProfileStoreSelection) {
         const authParams = {
@@ -901,12 +942,15 @@ export async function runBtwSideQuestion(
           harnessRuntime: selectedHarness.id,
           harnessAuthBootstrap: selectedHarness.authBootstrap,
         } satisfies Parameters<typeof prepareAgentRuntimeAuth>[0];
-        await reconcileAuthProfileQuotaBlocks(authParams);
+        if (selectedHarness.authBootstrap !== "plugin") {
+          await reconcileAuthProfileQuotaBlocks(authParams);
+        }
         runtimeAuthPreparation = prepareAgentRuntimeAuth(authParams);
       }
       const selectedAuthProfileStore = authProfileStoreSelection?.store ?? runtime.authProfileStore;
       const implicitHarnessAuthPlan =
-        selectedHarness.authBootstrap === "harness" &&
+        (selectedHarness.authBootstrap === "harness" ||
+          selectedHarness.authBootstrap === "plugin") &&
         runtimeAuthPreparation.attempts.length === 1 &&
         runtimeAuthPreparation.attempts[0]?.kind === "implicit" &&
         runtimeAuthPreparation.attempts[0].plan.harnessAuthProvider
@@ -941,12 +985,15 @@ export async function runBtwSideQuestion(
         }
         return runHarnessSideQuestion(
           finalizedHarness,
-          {
-            ...runtime,
-            model: runtimeModel,
-            runtimeAuthPreparation,
-            authProfileStore: selectedAuthProfileStore,
-          },
+          selectedHarness.authBootstrap === "plugin" ||
+            finalizedHarness.authBootstrap === "plugin"
+            ? await resolveRuntimeSelection(finalizedHarness)
+            : {
+                ...runtime,
+                model: runtimeModel,
+                runtimeAuthPreparation,
+                authProfileStore: selectedAuthProfileStore,
+              },
           true,
         );
       }
@@ -1079,7 +1126,10 @@ export async function runBtwSideQuestion(
       }
       preparedOpenClawFallback = dispatch;
     }
-    if (harness.id === "codex" && !harness.runSideQuestion) {
+    if (
+      (harness.id === "codex" || harness.authBootstrap === "plugin") &&
+      !harness.runSideQuestion
+    ) {
       throw new Error(
         `Selected agent harness "${harness.id}" does not support /btw side questions.`,
       );
@@ -1193,13 +1243,21 @@ export async function runBtwSideQuestion(
         runtimeSelectionForHarness.model.id,
       ));
     if (runtimeHarness.runSideQuestion) {
-      const dispatch = await runHarnessSideQuestion(runtimeHarness, runtimeSelectionForHarness);
+      const dispatch = await runHarnessSideQuestion(
+        runtimeHarness,
+        runtimeHarness.authBootstrap === "plugin" && harness.authBootstrap !== "plugin"
+          ? await resolveRuntimeSelection(runtimeHarness)
+          : runtimeSelectionForHarness,
+      );
       if (dispatch.kind === "handled") {
         return dispatch.payload;
       }
       preparedOpenClawFallback = dispatch;
     }
-    if (runtimeHarness.id === "codex" && !runtimeHarness.runSideQuestion) {
+    if (
+      (runtimeHarness.id === "codex" || runtimeHarness.authBootstrap === "plugin") &&
+      !runtimeHarness.runSideQuestion
+    ) {
       throw new Error(
         `Selected agent harness "${runtimeHarness.id}" does not support /btw side questions.`,
       );

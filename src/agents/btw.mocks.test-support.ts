@@ -131,7 +131,9 @@ vi.mock("./prepared-model-runtime.js", () => {
       configuredRuntimeModels: [],
       findConfiguredRuntimeModel: () => undefined,
       inlineProviderModels: [],
-      createStores: () => ({ authStorage, modelRegistry }),
+      createStores:
+        (preparedRuntimeSnapshotState.snapshot as { createStores?: () => unknown })
+          .createStores ?? (() => ({ authStorage, modelRegistry })),
     };
   };
   return {
@@ -151,10 +153,18 @@ vi.mock("./model-discovery-context.js", () => ({
   resolveModelPluginMetadataSnapshot: () => undefined,
 }));
 
-vi.mock("./embedded-agent-runner/model.js", () => ({
-  resolveModelAsync: (...args: unknown[]) => resolveModelAsyncMock(...args),
-  resolveModelWithRegistry: (...args: unknown[]) => resolveModelWithRegistryMock(...args),
-}));
+vi.mock("./embedded-agent-runner/model.js", async () => {
+  const { AuthStorage } = await import("./sessions/auth-storage.js");
+  const { ModelRegistry } = await import("./sessions/model-registry.js");
+  return {
+    createEmptyAgentDiscoveryStores: () => {
+      const authStorage = AuthStorage.inMemory({});
+      return { authStorage, modelRegistry: ModelRegistry.inMemory(authStorage) };
+    },
+    resolveModelAsync: (...args: unknown[]) => resolveModelAsyncMock(...args),
+    resolveModelWithRegistry: (...args: unknown[]) => resolveModelWithRegistryMock(...args),
+  };
+});
 
 vi.mock("./model-auth.js", () => ({
   applySecretRefHeaderSentinels: (model: unknown) => model,

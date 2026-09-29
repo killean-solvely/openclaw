@@ -707,6 +707,13 @@ export function getModelProviderRequestTransport(
   return (model as ModelWithProviderRequestTransport)[MODEL_PROVIDER_REQUEST_TRANSPORT_SYMBOL];
 }
 
+/** Removes provider request secrets before metadata is handed to another transport owner. */
+export function stripModelProviderRequestTransport<TModel extends object>(model: TModel): TModel {
+  const { [MODEL_PROVIDER_REQUEST_TRANSPORT_SYMBOL]: _request, ...metadata } =
+    model as TModel & ModelWithProviderRequestTransport;
+  return metadata as TModel;
+}
+
 /** Resolves and attaches the final provider route against one lifecycle-owned metadata generation. */
 export function attachModelProviderRequestRouteFacts<TModel extends ProviderRequestRouteModel>(
   model: TModel,

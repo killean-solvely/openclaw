@@ -374,6 +374,41 @@ describe("compactEmbeddedAgentSessionDirect hooks", () => {
     resetCompactSessionStateMocks();
   });
 
+  it("reports unsupported host compaction when the selected plugin owns authentication", async () => {
+    const harness: AgentHarness = {
+      id: "plugin-auth",
+      label: "Plugin auth",
+      authBootstrap: "plugin",
+      supports: () => ({ supported: true }),
+      runAttempt: async () => {
+        throw new Error("not used");
+      },
+    };
+    selectAgentHarnessMock.mockReturnValue(harness);
+    selectAgentHarnessForPreparedModelProvidersMock.mockReturnValue(harness);
+    ensureAuthProfileStoreMock.mockImplementation(() => {
+      throw new Error("provider auth store is unavailable");
+    });
+    getApiKeyForModelMock.mockImplementation(() => {
+      throw new Error("provider credential is unavailable");
+    });
+
+    const result = await compactEmbeddedAgentSessionDirect(
+      wrappedCompactionArgs({
+        provider: "openai",
+        model: "fixture-primary",
+        modelFallbacksOverride: [],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      compacted: false,
+      failure: { reason: "unsupported_harness_compaction" },
+      reason: expect.stringContaining('Agent harness "plugin-auth" owns authentication'),
+    });
+  });
+
   it.each(["bootstrap", "compaction"] as const)(
     "does not retry thinking after a recorded terminal %s failure",
     async (phase) => {
