@@ -1833,7 +1833,6 @@ export const PR_PROTECTED_RUNTIME_TEST_FILES: readonly string[] = [
   "src/cli/skills-cli.sag.process.test.ts",
   "src/cli/skills-cli.verify.process.test.ts",
   "src/cli/skills-cli.workshop-cache.test.ts",
-  "src/cli/skills-cli.workshop.test.ts",
   "src/cli/skills-library-cli.test.ts",
   "src/cli/state-dir-gateway-check.server.test.ts",
   "src/cli/update-cli.admission-ledger.test.ts",

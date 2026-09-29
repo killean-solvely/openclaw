@@ -399,7 +399,6 @@ src/cli/plugins-cli.runtime.ts
 src/cli/plugins-cli.update.test.ts
 src/cli/run-main.exit.test.ts
 src/cli/run-main.ts
-src/cli/skills-cli.commands.test.ts
 src/cli/skills-cli.ts
 src/commands/agent-via-gateway.test.ts
 src/commands/agent-via-gateway.ts
