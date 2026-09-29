@@ -171,8 +171,10 @@ function annotateInterSessionUserMessages(messages: AgentMessage[]): AgentMessag
   return touched ? out : messages;
 }
 
-function sanitizeUserReplayContent(message: AgentMessage): AgentMessage | null {
-  const replayContent = (message as { content?: unknown }).content;
+function sanitizeUserReplayContent(
+  message: Extract<AgentMessage, { role: "user" }>,
+): AgentMessage | null {
+  const replayContent = message.content;
   if (typeof replayContent === "string") {
     return replayContent.trim() || hasPersistedMedia(message) ? message : null;
   }
