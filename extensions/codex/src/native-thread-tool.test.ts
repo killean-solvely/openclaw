@@ -95,6 +95,17 @@ describe("native Codex thread tool", () => {
       expect(createTool()).not.toBeNull();
       expect(createTool({ owner: false })).toBeNull();
       expect(createTool({ homeScope: "agent" })).toBeNull();
+      expect(
+        createTool({
+          getPluginConfig: () => ({
+            appServer: {
+              transport: "websocket",
+              url: "ws://127.0.0.1:39175",
+              authMode: "host",
+            },
+          }),
+        }),
+      ).toBeNull();
       expect(createTool({ omitHomeScope: true, supervision: true })).not.toBeNull();
     }));
 

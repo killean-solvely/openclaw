@@ -42,6 +42,7 @@ import { EmbeddedBlockChunker, type BlockReplyChunking } from "./embedded-agent-
 import { resolveModelAsync } from "./embedded-agent-runner/model.js";
 import { getActiveEmbeddedRunSnapshot } from "./embedded-agent-runner/runs.js";
 import { resolveEmbeddedAgentStream } from "./embedded-agent-runner/stream-resolution.js";
+import { resolveAgentHarnessAuthOwnership } from "./harness/auth-ownership.js";
 import { resolvePluginHarnessPolicyToolsAllow } from "./harness/execution-environment.js";
 import { createAgentHarnessHostCapabilities } from "./harness/host-capability.js";
 import { resolveAgentHarnessOwnerPluginId } from "./harness/registry.js";
@@ -450,8 +451,16 @@ async function resolveRuntimeModel(params: {
   }
   const runtimeProvider = model.provider;
   const runtimeModelId = model.id;
+  const authOwnership = resolveAgentHarnessAuthOwnership({
+    config: cfg,
+    agentId: params.agentId,
+    provider: runtimeProvider,
+    modelId: runtimeModelId,
+    sessionKey: params.sessionKey,
+    runtimeId: params.harnessId,
+  });
 
-  const authSelection = await resolveSessionAuthSelection({
+  const authSelection = authOwnership === "host" ? undefined : await resolveSessionAuthSelection({
     cfg,
     provider: runtimeProvider,
     modelId: runtimeModelId,
@@ -466,7 +475,9 @@ async function resolveRuntimeModel(params: {
   });
   const authProfileId = authSelection?.profileId;
   const authProfileIdSource = authSelection?.source;
-  const authProfileStoreSelection = resolveBtwAuthProfileStore({
+  const authProfileStoreSelection = authOwnership === "host"
+    ? { store: { version: 1 as const, profiles: {} }, ignoreAutoPreferredProfile: false }
+    : resolveBtwAuthProfileStore({
     cfg,
     provider: runtimeProvider,
     modelId: runtimeModelId,
@@ -496,8 +507,11 @@ async function resolveRuntimeModel(params: {
     harnessId: params.harnessId,
     harnessRuntime: params.harnessId,
     harnessAuthBootstrap: params.harnessAuthBootstrap,
+    authOwnership,
   } satisfies Parameters<typeof prepareAgentRuntimeAuth>[0];
-  await reconcileAuthProfileQuotaBlocks(authParams);
+  if (authOwnership !== "host") {
+    await reconcileAuthProfileQuotaBlocks(authParams);
+  }
   const runtimeAuthPreparation = prepareAgentRuntimeAuth(authParams);
   model = await materializeBtwRuntimeModel({
     abortSignal: params.abortSignal,
@@ -845,6 +859,11 @@ export async function runBtwSideQuestion(
       runtime: Awaited<ReturnType<typeof resolveRuntimeModel>>,
       routeFinalized = false,
     ): Promise<BtwHarnessSideQuestionDispatch> => {
+      const authOwnership = selectedHarness.resolveAuthOwnership?.({
+        config: params.cfg,
+        agentId: sessionAgentId,
+        provider: runtime.model.provider,
+      });
       const toolsAllow = resolvePluginHarnessPolicyToolsAllow({
         config: params.cfg,
         sessionId,
@@ -868,7 +887,9 @@ export async function runBtwSideQuestion(
       const authProfileStoreSelection =
         selectedHarness.id === harness.id
           ? undefined
-          : resolveBtwAuthProfileStore({
+          : authOwnership === "host"
+            ? { store: { version: 1 as const, profiles: {} }, ignoreAutoPreferredProfile: false }
+            : resolveBtwAuthProfileStore({
               cfg: params.cfg,
               provider: runtime.model.provider,
               modelId: runtime.model.id,
@@ -900,16 +921,19 @@ export async function runBtwSideQuestion(
           harnessId: selectedHarness.id,
           harnessRuntime: selectedHarness.id,
           harnessAuthBootstrap: selectedHarness.authBootstrap,
+          authOwnership,
         } satisfies Parameters<typeof prepareAgentRuntimeAuth>[0];
-        await reconcileAuthProfileQuotaBlocks(authParams);
+        if (authOwnership !== "host") {
+          await reconcileAuthProfileQuotaBlocks(authParams);
+        }
         runtimeAuthPreparation = prepareAgentRuntimeAuth(authParams);
       }
       const selectedAuthProfileStore = authProfileStoreSelection?.store ?? runtime.authProfileStore;
       const implicitHarnessAuthPlan =
-        selectedHarness.authBootstrap === "harness" &&
+        (authOwnership === "host" || selectedHarness.authBootstrap === "harness") &&
         runtimeAuthPreparation.attempts.length === 1 &&
         runtimeAuthPreparation.attempts[0]?.kind === "implicit" &&
-        runtimeAuthPreparation.attempts[0].plan.harnessAuthProvider
+        (authOwnership === "host" || runtimeAuthPreparation.attempts[0].plan.harnessAuthProvider)
           ? runtimeAuthPreparation.attempts[0].plan
           : undefined;
       // A native harness owns this deferred auth decision. Resolving it through
