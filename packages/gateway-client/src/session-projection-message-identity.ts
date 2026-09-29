@@ -1,5 +1,5 @@
 import { asNullableRecord as readRecord } from "@openclaw/normalization-core/record-coerce";
-import { normalizeNullableString as readSessionProjectionString } from "@openclaw/normalization-core/string-coerce";
+import { normalizeNullableString } from "@openclaw/normalization-core/string-coerce";
 
 export type SessionMessageEnvelope = {
   /** An unsequenced continuation follows this row; null denotes an unsequenced boundary. */
@@ -22,6 +22,10 @@ export type SessionMessageIdentity = {
   isImported: boolean;
   externalSource: string | null;
 };
+
+export function readSessionProjectionString(value: unknown): string | null {
+  return normalizeNullableString(value);
+}
 
 function readPositiveSafeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;

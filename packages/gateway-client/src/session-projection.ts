@@ -1,7 +1,6 @@
 /** Browser-safe identity and replay rules shared by Gateway conversation clients. */
 
 import { asNullableRecord as readRecord } from "@openclaw/normalization-core/record-coerce";
-import { normalizeNullableString as readNonemptyString } from "@openclaw/normalization-core/string-coerce";
 import {
   canRecoverSessionProjectionFinal,
   hasSessionProjectionAcceptedFinal,
@@ -23,6 +22,7 @@ import {
   normalizeSessionProjectionRunId,
   readAssistantStreamSegmentIdentity,
   sameAssistantPersistenceReceipt,
+  readSessionProjectionString as readNonemptyString,
   type SessionMessageEnvelope,
   type SessionMessageIdentity,
   type SessionProjectionEntry,

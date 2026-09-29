@@ -9,7 +9,9 @@ export type ProviderReplayContext = Readonly<
   >
 >;
 
-export function isProviderReplayContext(value: unknown): value is ProviderReplayContext {
+export function isProviderReplayContext(
+  value: unknown,
+): value is ProviderReplayContext & Record<string, unknown> {
   return (
     isRecord(value) &&
     typeof value.provider === "string" &&

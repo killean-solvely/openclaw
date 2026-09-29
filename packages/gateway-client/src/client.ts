@@ -607,9 +607,7 @@ export class GatewayClient {
     const ws = this.ws;
     this.ws = null;
     if (ws) {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      const pendingStop: PendingStop = { ws, promise, resolve };
-      this.pendingStop = pendingStop;
+      const pendingStop = this.createPendingStop(ws);
       const forceTerminateTimer = setTimeout(() => {
         try {
           ws.terminate();
@@ -629,6 +627,15 @@ export class GatewayClient {
     }
     this.protocol.stop();
     return null;
+  }
+
+  private createPendingStop(ws: WebSocket): PendingStop {
+    let resolve = () => {};
+    const promise = new Promise<void>((done) => {
+      resolve = done;
+    });
+    this.pendingStop = { ws, promise, resolve };
+    return this.pendingStop;
   }
 
   private resolvePendingStop(ws: WebSocket): void {
