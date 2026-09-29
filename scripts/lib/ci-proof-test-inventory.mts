@@ -2424,7 +2424,6 @@ export const PR_PROTECTED_RUNTIME_TEST_FILES: readonly string[] = [
   "src/cron/service/ops.run-admission.test.ts",
   "src/cron/service/ops.run-execution-binding.test.ts",
   "src/cron/service/ops.test.ts",
-  "src/cron/service/ops.update.disable-and-list.test.ts",
   "src/cron/service/owner-hardening.test.ts",
   "src/cron/service/run-admission-conflict.test.ts",
   "src/cron/service/run-admission.ownerless.test.ts",
