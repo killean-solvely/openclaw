@@ -7,6 +7,8 @@ import {
   type PreparedProviderModelAccess,
   decideProviderLoginSessionAdoption,
   createProviderLoginFlowRegistry,
+  createProviderLoginAuthOwnershipGuard,
+  HostManagedProviderAuthError,
   formatProviderLoginCommand,
   formatProviderLoginCompletion,
   formatProviderLoginFailure,
@@ -68,8 +70,11 @@ export async function executeTelegramLoginCommand(params: {
   dispatch: TelegramCommandDispatch;
   commandText: string;
   currentProvider?: string;
+  currentModelId?: string;
+  runtimeId?: string;
 }): Promise<boolean> {
   const { dispatch } = params;
+  let assertAuthOwnership: Awaited<ReturnType<typeof createProviderLoginAuthOwnershipGuard>> | undefined;
   const sendLoginMessage = async (text: string) => {
     await withTelegramApiErrorLogging({
       operation: "sendMessage",
@@ -113,6 +118,7 @@ export async function executeTelegramLoginCommand(params: {
     ) {
       throw new Error("Provider login authority is no longer active.");
     }
+    assertAuthOwnership?.(config);
   };
   const sendLoginReply = async (reply: ReplyPayload) => {
     const { deliverReplies } = await dispatch.loadDeliveryRuntime();
@@ -132,6 +138,10 @@ export async function executeTelegramLoginCommand(params: {
     isPrivateChat: dispatch.msg.chat.type === "private",
     config: dispatch.runtimeCfg,
     agentId: dispatch.route.agentId,
+    currentProvider: params.currentProvider,
+    currentModelId: params.currentModelId,
+    currentRuntimeId: params.runtimeId,
+    sessionKey: dispatch.targetSessionKey,
     signal: dispatch.opts.accountAbortSignal,
     refreshAuth: () =>
       refreshProviderLoginAuthState({
@@ -170,6 +180,13 @@ export async function executeTelegramLoginCommand(params: {
     return (await sendLoginReply(prepared.reply)) && prepared.status === "reply";
   }
   const loginChoice = prepared.choice;
+  assertAuthOwnership = await createProviderLoginAuthOwnershipGuard({
+    agentId: dispatch.route.agentId,
+    provider: loginChoice.providerId,
+    modelId: params.currentProvider === loginChoice.providerId ? params.currentModelId : undefined,
+    sessionKey: dispatch.targetSessionKey,
+    runtimeId: params.currentProvider === loginChoice.providerId ? params.runtimeId : undefined,
+  });
   const flowKey = buildTelegramProviderLoginFlowKey(dispatch);
   const reservation = reserveProviderLoginFlow({
     flows: activeTelegramProviderLoginFlows,
@@ -212,6 +229,9 @@ export async function executeTelegramLoginCommand(params: {
           defaultTelegramNativeCommandDeps.runModelsAuthLoginFlow,
         choice: loginChoice,
         agentId: dispatch.route.agentId,
+        modelId: params.currentProvider === loginChoice.providerId ? params.currentModelId : undefined,
+        runtimeId: params.currentProvider === loginChoice.providerId ? params.runtimeId : undefined,
+        sessionKey: dispatch.targetSessionKey,
         config: dispatch.runtimeCfg,
         readConfig: dispatch.telegramDeps.getRuntimeConfig,
         runtime: dispatch.runtime,
@@ -282,6 +302,9 @@ export async function executeTelegramLoginCommand(params: {
             sessionSwitchFailed = true;
           }
         } catch (error) {
+          if (error instanceof HostManagedProviderAuthError) {
+            throw error;
+          }
           flowSignal.throwIfAborted();
           dispatch.runtime.error?.(
             danger(

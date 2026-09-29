@@ -17,6 +17,10 @@ import {
 } from "../plugins/provider-login-options.js";
 import { createLazyRuntimeMethodBinder, createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import {
+  HOST_MANAGED_AUTH_LOGIN_MESSAGE,
+  HostManagedProviderAuthError,
+} from "../shared/host-managed-auth-error.js";
+import {
   ProviderAuthConfigApplyError,
   ProviderCredentialsSavedError,
 } from "../shared/provider-auth-result.js";
@@ -33,6 +37,7 @@ export type {
 export type { PreparedProviderModelAccess } from "../commands/models/auth-model-policy.js";
 export type { ProviderChannelLoginChoice } from "../plugins/provider-login-options.js";
 export { ProviderAuthConfigApplyError, ProviderCredentialsSavedError };
+export { HostManagedProviderAuthError };
 export {
   decideProviderLoginSessionAdoption,
   isProviderLoginPatchPersisted,
@@ -319,6 +324,10 @@ export async function prepareProviderChannelLogin(params: {
   isPrivateChat: boolean;
   config: OpenClawConfig;
   agentId: string;
+  currentProvider?: string;
+  currentModelId?: string;
+  currentRuntimeId?: string;
+  sessionKey?: string;
   workspaceDir?: string;
   signal?: AbortSignal;
   hasAdminScope?: boolean;
@@ -349,6 +358,38 @@ export async function prepareProviderChannelLogin(params: {
         text: "Only an OpenClaw owner can sign in here. Ask the owner to connect this provider or grant you owner access.",
       },
     };
+  }
+  const input = match[1]?.trim();
+  const { resolveAgentHarnessAuthOwnership } = await import("../agents/harness/auth-ownership.js");
+  const isHostManaged = (provider: string) =>
+    resolveAgentHarnessAuthOwnership({
+      config: params.config,
+      agentId: params.agentId,
+      provider,
+      modelId: provider === params.currentProvider ? params.currentModelId : undefined,
+      runtimeId: provider === params.currentProvider ? params.currentRuntimeId : undefined,
+      sessionKey: params.sessionKey,
+    }) === "host";
+  if ((!input || input.toLowerCase() === "refresh") && params.currentProvider && isHostManaged(params.currentProvider)) {
+    return { status: "rejected", reply: { text: HOST_MANAGED_AUTH_LOGIN_MESSAGE } };
+  }
+  const isFlowControl = input && (/^(?:refresh|cancel)$/iu.test(input) || /^(?:choice|access)(?:\s|$)/u.test(input));
+  let resolution = isFlowControl ? undefined : resolveProviderChannelLoginChoice(input, {
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+  });
+  if (resolution?.status === "resolved" && isHostManaged(resolution.choice.providerId)) {
+    return { status: "rejected", reply: { text: HOST_MANAGED_AUTH_LOGIN_MESSAGE } };
+  }
+  if (resolution?.status === "ambiguous" || resolution?.status === "unsupported") {
+    const choices = resolution.choices.filter((choice) => !isHostManaged(choice.providerId));
+    if (resolution.choices.length > 0 && choices.length === 0) {
+      return { status: "rejected", reply: { text: HOST_MANAGED_AUTH_LOGIN_MESSAGE } };
+    }
+    resolution = { ...resolution, choices };
+  }
+  if (resolution?.status === "providers") {
+    resolution = { ...resolution, providers: resolution.providers.filter((provider) => !isHostManaged(provider.providerId)) };
   }
   if (!params.isPrivateChat) {
     return {
@@ -399,10 +440,9 @@ export async function prepareProviderChannelLogin(params: {
       },
     };
   }
-  const resolution = resolveProviderChannelLoginChoice(match[1]?.trim() || undefined, {
-    config: params.config,
-    workspaceDir: params.workspaceDir,
-  });
+  if (!resolution) {
+    throw new Error("Provider login command did not resolve a connection choice.");
+  }
   if (resolution.status !== "resolved") {
     return { status: "reply", reply: buildProviderLoginChoicesReply(resolution) };
   }
@@ -530,9 +570,28 @@ export async function refreshProviderLoginAuthState(params: {
   readConfig();
 }
 
+/** Retains a synchronous ownership check for callers' credential and session write fences. */
+export async function createProviderLoginAuthOwnershipGuard(params: {
+  agentId: string;
+  provider: string;
+  modelId?: string;
+  sessionKey?: string;
+  runtimeId?: string;
+}): Promise<(config: OpenClawConfig) => void> {
+  const { resolveAgentHarnessAuthOwnership } = await import("../agents/harness/auth-ownership.js");
+  return (config) => {
+    if (resolveAgentHarnessAuthOwnership({ ...params, config }) === "host") {
+      throw new HostManagedProviderAuthError();
+    }
+  };
+}
+
 export async function runProviderChannelLoginFlow(params: {
   choice: ProviderChannelLoginChoice;
   agentId: string;
+  modelId?: string;
+  runtimeId?: string;
+  sessionKey?: string;
   config: OpenClawConfig;
   runtime: RuntimeEnv;
   sendMessage: (message: string) => Promise<void>;
@@ -545,6 +604,13 @@ export async function runProviderChannelLoginFlow(params: {
   runLoginFlow?: (opts: ModelsAuthLoginFlowOptions) => Promise<unknown>;
   onModelAccessRequested?: ModelsAuthLoginFlowOptions["onModelAccessRequested"];
 }): Promise<ModelsAuthLoginFlowResult> {
+  const assertAuthOwnership = await createProviderLoginAuthOwnershipGuard({
+    agentId: params.agentId,
+    provider: params.choice.providerId,
+    modelId: params.modelId,
+    runtimeId: params.runtimeId,
+    sessionKey: params.sessionKey,
+  });
   const openUrl = async (url: string) => {
     assertCurrent();
     const heading = `Sign in with ${params.choice.providerLabel}. Return here after approving access. Send /login cancel to cancel.`;
@@ -579,6 +645,7 @@ export async function runProviderChannelLoginFlow(params: {
     browser.assertCurrent();
     const config = readConfig();
     params.assertCurrent?.(config);
+    assertAuthOwnership(config);
     const resolution = resolveProviderChannelLoginChoice(
       formatProviderLoginChoiceRef(params.choice),
       { config },
