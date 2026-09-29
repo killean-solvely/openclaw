@@ -432,21 +432,24 @@ extension OpenClawChatViewModel {
     public func renameSession(key: String, label: String, agentID: String? = nil) {
         let target = self.sessionMutationTarget(key: key, agentID: agentID)
         let nextLabel = ChatPayloadDecoding.trimmedNonEmptyString(label)
-        self.mutateSessionOptimistically(field: "label", update: {
-            if let index = self.sessions.firstIndex(where: { self.sessionMatchesTarget($0, target: target) }) {
-                self.sessions[index].label = nextLabel
-                self.sessions[index].displayName = nextLabel
-            }
-        }) { routeLease in
-            try await routeLease.patchSession(
-                key: key,
-                agentID: target.agentID,
-                label: .some(nextLabel),
-                category: nil,
-                pinned: nil,
-                archived: nil,
-                unread: nil)
-        }
+        self.mutateSessionOptimistically(
+            field: "label",
+            update: {
+                if let index = self.sessions.firstIndex(where: { self.sessionMatchesTarget($0, target: target) }) {
+                    self.sessions[index].label = nextLabel
+                    self.sessions[index].displayName = nextLabel
+                }
+            },
+            mutation: { routeLease in
+                try await routeLease.patchSession(
+                    key: key,
+                    agentID: target.agentID,
+                    label: .some(nextLabel),
+                    category: nil,
+                    pinned: nil,
+                    archived: nil,
+                    unread: nil)
+            })
     }
 
     private func mutateSessionOptimistically(
@@ -851,22 +854,25 @@ extension OpenClawChatViewModel {
 
     public func setSessionPinned(key: String, pinned: Bool, agentID: String? = nil) {
         let target = self.sessionMutationTarget(key: key, agentID: agentID)
-        self.mutateSessionOptimistically(field: "pinned", update: {
-            if let index = self.sessions.firstIndex(where: { self.sessionMatchesTarget($0, target: target) }) {
-                self.sessions[index].pinned = pinned
-                self.sessions[index].pinnedAt = pinned ? Date().timeIntervalSince1970 * 1000 : nil
-                self.sessions = OpenClawChatSessionListOrganizer.organize(self.sessions)
-            }
-        }) { routeLease in
-            try await routeLease.patchSession(
-                key: key,
-                agentID: target.agentID,
-                label: nil,
-                category: nil,
-                pinned: pinned,
-                archived: nil,
-                unread: nil)
-        }
+        self.mutateSessionOptimistically(
+            field: "pinned",
+            update: {
+                if let index = self.sessions.firstIndex(where: { self.sessionMatchesTarget($0, target: target) }) {
+                    self.sessions[index].pinned = pinned
+                    self.sessions[index].pinnedAt = pinned ? Date().timeIntervalSince1970 * 1000 : nil
+                    self.sessions = OpenClawChatSessionListOrganizer.organize(self.sessions)
+                }
+            },
+            mutation: { routeLease in
+                try await routeLease.patchSession(
+                    key: key,
+                    agentID: target.agentID,
+                    label: nil,
+                    category: nil,
+                    pinned: pinned,
+                    archived: nil,
+                    unread: nil)
+            })
     }
 
     public func setSessionArchived(_ session: OpenClawChatSessionEntry, archived: Bool) {
@@ -880,23 +886,26 @@ extension OpenClawChatViewModel {
             self.errorText = "Session lifecycle action requires a durable session identity."
             return
         }
-        self.mutateSessionOptimistically(field: "archived", update: {
-            self.sessions.removeAll { self.sessionMatchesTarget($0, target: target) }
-        }) { routeLease in
-            try await routeLease.patchSession(
-                key: key,
-                agentID: target.agentID,
-                expectedSessionID: expectedSessionID,
-                label: nil,
-                category: nil,
-                pinned: nil,
-                archived: true,
-                unread: nil)
-            if self.matchesCurrentSessionKey(incoming: key, agentId: target.agentID, current: self.sessionKey) {
-                // The archived session rejects new sends; return to the main session.
-                self.switchSession(to: self.resolvedMainSessionKey)
-            }
-        }
+        self.mutateSessionOptimistically(
+            field: "archived",
+            update: {
+                self.sessions.removeAll { self.sessionMatchesTarget($0, target: target) }
+            },
+            mutation: { routeLease in
+                try await routeLease.patchSession(
+                    key: key,
+                    agentID: target.agentID,
+                    expectedSessionID: expectedSessionID,
+                    label: nil,
+                    category: nil,
+                    pinned: nil,
+                    archived: true,
+                    unread: nil)
+                if self.matchesCurrentSessionKey(incoming: key, agentId: target.agentID, current: self.sessionKey) {
+                    // The archived session rejects new sends; return to the main session.
+                    self.switchSession(to: self.resolvedMainSessionKey)
+                }
+            })
     }
 
     /// Restores an archived session. Returns false (with `errorText` set) on
