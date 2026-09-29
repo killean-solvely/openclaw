@@ -312,10 +312,8 @@ export class OpenClaw {
     if (this.eventPumpReady) {
       return this.eventPumpReady;
     }
-    let markReady = () => {};
-    this.eventPumpReady = new Promise<void>((resolve) => {
-      markReady = resolve;
-    });
+    const { promise, resolve: markReady } = Promise.withResolvers<void>();
+    this.eventPumpReady = promise;
     this.eventPumpPromise = (async () => {
       let iterator: AsyncIterator<GatewayEvent> | undefined;
       let pumpError: unknown;
