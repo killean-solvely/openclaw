@@ -3,6 +3,7 @@ import { MessageChannel, type MessagePort } from "node:worker_threads";
 import { afterEach, expect, it, vi } from "vitest";
 import { createDeferredCore } from "../shared/deferred.js";
 import { encodeOpenClawStateWorkerError } from "../state/openclaw-state-worker-error.js";
+import { resolveRuntimeProcessEntrypointUrl } from "./runtime-process-url.js";
 import { SqliteSnapshotCleanupError } from "./sqlite-readonly-location-cleanup.js";
 import { createSqliteReadOnlyNativeResourceClient } from "./sqlite-readonly-native-resource.client.js";
 import { createNativeWorkerResource } from "./sqlite-readonly-native-resource.js";
@@ -259,13 +260,18 @@ it.each([false, true])(
 it("creates native sessions only through RPC and preserves captured launch and staging commands", async () => {
   const { client, launch, native, closed, inventory, resource } = fixture();
   expect(operations.session).not.toHaveBeenCalled();
-  const session = client.createSession(launch);
+  const wireLaunch = { ...launch, moduleUrl: "file:///foreign-runtime/worker.mjs" };
+  const session = client.createSession(wireLaunch);
   expect(operations.session).not.toHaveBeenCalled();
   launch.env.FIXTURE = "changed";
   expect(
     await session.run("/fixture/staging", { mode: "staging-create-legacy", preparationId: 1 }),
   ).toBe("/fixture/staging");
-  expect(operations.session).toHaveBeenCalledWith({ ...launch, env: { FIXTURE: "captured" } });
+  expect(operations.session).toHaveBeenCalledWith({
+    ...launch,
+    env: { FIXTURE: "captured" },
+    moduleUrl: resolveRuntimeProcessEntrypointUrl("sqliteReadOnly"),
+  });
   expect(native.run).toHaveBeenCalledWith("/fixture/staging", { mode: "staging-create-legacy" });
   expect(session.compatible(launch)).toBe(false);
   expect(session.compatible({ ...launch, env: { FIXTURE: "captured" } })).toBe(true);
