@@ -409,7 +409,6 @@ src/commands/daemon-install-helpers.test.ts
 src/commands/daemon-install-helpers.ts
 src/commands/doctor-auth-flat-profiles.test.ts
 src/commands/doctor-auth-flat-profiles.ts
-src/commands/doctor-config-flow.test.ts
 src/commands/doctor-gateway-services.test.ts
 src/commands/doctor-legacy-config.migrations.test.ts
 src/commands/doctor-memory-search.test.ts
