@@ -98,6 +98,7 @@ import {
   sendControlUiHtmlBody,
   serveControlUiAsset,
 } from "./control-ui-static.js";
+import { isCloudflareAccessTrustedProxyAuth } from "./github-user-identity.js";
 import {
   createGatewayByteStream,
   resolveByteResponse,
@@ -956,6 +957,10 @@ export async function handleControlUiHttpRequest(
       ...resolveControlUiBootstrapPresentation(config),
       terminalEnabled,
       cliAgentsEnabled: config?.gateway?.cliAgents?.enabled !== false,
+      logout:
+        requestAuth.authMethod === "trusted-proxy" && isCloudflareAccessTrustedProxyAuth(opts?.auth)
+          ? { provider: "cloudflare-access", path: "/cdn-cgi/access/logout" }
+          : undefined,
       pluginAssetsRequireAuth: opts?.auth !== undefined && opts.auth.mode !== "none",
       pluginFrameGrants: pluginFrameGrants.map(({ pluginId, path: grantPath, match }) => ({
         pluginId,
