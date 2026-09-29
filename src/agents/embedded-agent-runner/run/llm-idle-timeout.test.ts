@@ -10,6 +10,10 @@ import {
 } from "openclaw/plugin-sdk/llm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../../../config/config.js";
+import {
+  clearToolActivityRun,
+  notifyToolActivity,
+} from "../../../shared/tool-activity-heartbeat.js";
 import type { StreamFn } from "../../runtime/index.js";
 import { resolveAgentTimeoutMs } from "../../timeout.js";
 import {
@@ -17,7 +21,6 @@ import {
   resolveLlmIdleTimeoutMs,
   streamWithIdleTimeout,
 } from "./llm-idle-timeout.js";
-import { clearToolActivityRun, notifyToolActivity } from "./tool-activity-heartbeat.js";
 
 const DEFAULT_LLM_IDLE_TIMEOUT_MS = 120_000;
 const SELF_HOSTED_LLM_IDLE_TIMEOUT_MS = 300_000;

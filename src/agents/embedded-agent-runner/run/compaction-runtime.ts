@@ -7,10 +7,10 @@ import {
   bindContextEngineCompaction,
   inheritRuntimeCompactionDelegate,
 } from "../../../context-engine/compaction-watchdog.js";
-import type { resolveContextEngine } from "../../../context-engine/registry.js";
 import type { buildContextEngineRuntimeSettings } from "../../../context-engine/runtime-settings.js";
 import {
   resolveCompactionSuccessorTranscript,
+  type ContextEngine,
   type ContextEngineSessionTarget,
 } from "../../../context-engine/types.js";
 import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js";
@@ -41,7 +41,6 @@ import { resolveEmbeddedSessionContextLimits } from "./session-context-limits.js
 import type { createEmbeddedRunSessionPromptState } from "./session-prompt-state.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
 
-type ContextEngine = Awaited<ReturnType<typeof resolveContextEngine>>;
 type SessionPromptState = Awaited<ReturnType<typeof createEmbeddedRunSessionPromptState>>;
 type CompactionResult = Awaited<ReturnType<ContextEngine["compact"]>>;
 
@@ -101,46 +100,19 @@ export async function compactEmbeddedRunForRecovery(
   owner.assertActive();
   const runtimeContext = {
     ...buildEmbeddedCompactionRuntimeContext({
-      sessionKey: runParams.sessionKey,
-      sandboxSessionKey: runParams.sandboxSessionKey,
-      sandboxAgentId: runParams.sandboxAgentId,
-      messageChannel: runParams.messageChannel,
-      messageProvider: runParams.messageProvider,
-      clientCaps: runParams.clientCaps,
-      pinnedWidgetAuthoring: runParams.pinnedWidgetAuthoring,
-      chatType: runParams.chatType,
-      agentAccountId: runParams.agentAccountId,
-      conversationRoutePeerId: runParams.conversationRoutePeerId,
-      currentChannelId: runParams.currentChannelId,
-      currentThreadTs: runParams.currentThreadTs,
-      currentMessageId: runParams.currentMessageId,
+      ...runParams,
+      // Recovery has no attempt-local cwd or sender ownership projection.
+      cwd: undefined,
+      senderIsOwner: undefined,
       authProfileId: input.modelSelection.authProfileId,
       authProfileIdSource: input.modelSelection.authProfileIdSource,
       runtimeAuthPlan: input.runtimeAuthPlan,
       workspaceDir: input.workspaceDir,
-      bootstrapWorkspaceDir: runParams.bootstrapWorkspaceDir,
-      permissionMode: runParams.permissionMode,
-      sessionRoot: runParams.sessionRoot,
-      requireWorkspaceOnly: runParams.requireWorkspaceOnly,
-      requireWritableSandbox: runParams.requireWritableSandbox,
       agentDir: input.agentDir,
-      config: runParams.config,
-      toolOverrides: runParams.toolOverrides,
-      toolsAllow: runParams.toolsAllow,
-      skillsSnapshot: runParams.skillsSnapshot,
-      senderId: runParams.senderId,
       provider: input.modelSelection.provider,
       modelId: input.modelSelection.model,
       harnessRuntime: input.harnessRuntime,
-      modelSelectionLocked: runParams.modelSelectionLocked,
-      modelFallbacksOverride: runParams.modelFallbacksOverride,
       thinkLevel: input.thinkLevel,
-      reasoningLevel: runParams.reasoningLevel,
-      execOverrides: runParams.execOverrides,
-      bashElevated: runParams.bashElevated,
-      extraSystemPrompt: runParams.extraSystemPrompt,
-      sourceReplyDeliveryMode: runParams.sourceReplyDeliveryMode,
-      ownerNumbers: runParams.ownerNumbers,
       activeProcessSessions: listActiveProcessSessionReferences({
         scopeKey: resolveProcessToolScopeKey({
           sessionKey: runParams.sessionKey,

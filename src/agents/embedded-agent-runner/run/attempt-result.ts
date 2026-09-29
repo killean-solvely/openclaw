@@ -136,35 +136,18 @@ function normalizeEmbeddedAttemptToolMetas(
       (entry): entry is EmbeddedAttemptSubscription["toolMetas"][number] & { toolName: string } =>
         typeof entry.toolName === "string" && entry.toolName.trim().length > 0,
     )
-    .map((entry) => {
-      const normalized: EmbeddedRunAttemptResult["toolMetas"][number] = {
-        toolName: entry.toolName,
-        meta: entry.meta,
-        replaySafe: entry.replaySafe === true,
-      };
-      if (entry.toolCallId) {
-        normalized.toolCallId = entry.toolCallId;
-      }
-      if (typeof entry.isError === "boolean") {
-        normalized.isError = entry.isError;
-      }
-      if (entry.terminate === true) {
-        normalized.terminate = true;
-      }
-      if (entry.asyncStarted === true) {
-        normalized.asyncStarted = true;
-      }
-      if (entry.asyncTaskRunId) {
-        normalized.asyncTaskRunId = entry.asyncTaskRunId;
-      }
-      if (entry.asyncTaskId) {
-        normalized.asyncTaskId = entry.asyncTaskId;
-      }
-      if (entry.codeModeSuspended === true) {
-        normalized.codeModeSuspended = true;
-      }
-      return normalized;
-    });
+    .map((entry) => ({
+      toolName: entry.toolName,
+      meta: entry.meta,
+      replaySafe: entry.replaySafe === true,
+      ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
+      ...(typeof entry.isError === "boolean" ? { isError: entry.isError } : {}),
+      ...(entry.terminate === true ? { terminate: true } : {}),
+      ...(entry.asyncStarted === true ? { asyncStarted: true } : {}),
+      ...(entry.asyncTaskRunId ? { asyncTaskRunId: entry.asyncTaskRunId } : {}),
+      ...(entry.asyncTaskId ? { asyncTaskId: entry.asyncTaskId } : {}),
+      ...(entry.codeModeSuspended === true ? { codeModeSuspended: true } : {}),
+    }));
 }
 
 function collectCompletedClientToolCalls(
@@ -228,34 +211,8 @@ export function completeEmbeddedAttemptResult(
     didDeliverSourceReplyViaMessageTool: hasDeliveredSourceReply(),
   };
   const terminal = projectAgentRunAttemptTerminal(state.terminal);
-  const {
-    assistantTexts,
-    didSendDeterministicApprovalPrompt,
-    didSendViaMessagingTool,
-    getAcceptedSessionSpawns,
-    getAssistantTurnCount,
-    getCompactionCount,
-    getHeartbeatToolResponse,
-    getItemLifecycle,
-    getLastAssistantTextMessageIndex,
-    getLastCompactionTokensAfter,
-    getLastToolError,
-    getLatestMcpAppChannelView,
-    getLatestMcpConnectAction,
-    getMessagingToolSentMediaUrls,
-    getMessagingToolSentTargets,
-    getMessagingToolSentTexts,
-    getMessagingToolSourceReplyPayloads,
-    getPendingToolMediaReply,
-    getToolAutoDeliveryMediaUrls,
-    getReplayState,
-    getSuccessfulCronAdds,
-    getVisibleBlockReplyCount,
-    hasToolMediaBlockReply,
-    setTerminalLifecycleMeta,
-    toolMetas,
-  } = subscription;
-  const toolMetasNormalized = normalizeEmbeddedAttemptToolMetas(toolMetas);
+  const { assistantTexts, setTerminalLifecycleMeta } = subscription;
+  const toolMetasNormalized = normalizeEmbeddedAttemptToolMetas(subscription.toolMetas);
 
   if (
     attempt.operation !== "settled-tool-finalization" &&
@@ -305,36 +262,36 @@ export function completeEmbeddedAttemptResult(
       });
   }
 
-  const acceptedSessionSpawns = getAcceptedSessionSpawns();
-  const messagingToolSentMediaUrls = getMessagingToolSentMediaUrls();
+  const acceptedSessionSpawns = subscription.getAcceptedSessionSpawns();
+  const messagingToolSentMediaUrls = subscription.getMessagingToolSentMediaUrls();
   const sentMediaUrls = new Set(messagingToolSentMediaUrls.map((url) => url.trim()));
-  const toolAutoDeliveryMediaUrls = getToolAutoDeliveryMediaUrls().filter(
-    (url) => !sentMediaUrls.has(url.trim()),
-  );
+  const toolAutoDeliveryMediaUrls = subscription
+    .getToolAutoDeliveryMediaUrls()
+    .filter((url) => !sentMediaUrls.has(url.trim()));
   const replayEvidence = {
     toolMetas: toolMetasNormalized,
-    didSendViaMessagingTool: didSendViaMessagingTool(),
-    messagingToolSentTexts: getMessagingToolSentTexts(),
+    didSendViaMessagingTool: subscription.didSendViaMessagingTool(),
+    messagingToolSentTexts: subscription.getMessagingToolSentTexts(),
     messagingToolSentMediaUrls,
     acceptedSessionSpawns,
-    successfulCronAdds: getSuccessfulCronAdds(),
+    successfulCronAdds: subscription.getSuccessfulCronAdds(),
   };
   // Structured start arguments already updated replayState for mutations and async work.
   // Reclassifying by tool name would incorrectly mark read-only cron actions as unsafe.
   const observedReplayMetadata = buildAttemptReplayMetadata({ ...replayEvidence, toolMetas: [] });
-  const pendingToolMediaReply = getPendingToolMediaReply();
+  const pendingToolMediaReply = subscription.getPendingToolMediaReply();
   const replayMetadata = replayMetadataFromState(
-    observeReplayMetadata(getReplayState(), observedReplayMetadata),
+    observeReplayMetadata(subscription.getReplayState(), observedReplayMetadata),
   );
   const currentAttemptReplayMetadata = buildAttemptReplayMetadata(replayEvidence);
   const completedClientToolCalls = collectCompletedClientToolCalls(clientToolCallSlots);
   const clientToolCalls =
     completedClientToolCalls.length > 0 ? completedClientToolCalls : undefined;
-  const didSendDeterministicApprovalPromptNow = didSendDeterministicApprovalPrompt();
-  const lastToolError = getLastToolError();
-  const heartbeatToolResponse = getHeartbeatToolResponse();
-  const messagingToolSourceReplyPayloads = getMessagingToolSourceReplyPayloads();
-  const hasToolMediaBlockReplyNow = hasToolMediaBlockReply();
+  const didSendDeterministicApprovalPromptNow = subscription.didSendDeterministicApprovalPrompt();
+  const lastToolError = subscription.getLastToolError();
+  const heartbeatToolResponse = subscription.getHeartbeatToolResponse();
+  const messagingToolSourceReplyPayloads = subscription.getMessagingToolSourceReplyPayloads();
+  const hasToolMediaBlockReplyNow = subscription.hasToolMediaBlockReply();
   const settledTurnFinalizationContext = resolveSettledTurnFinalizationContext({
     assistant: state.currentAttemptCompletedAssistant ?? state.currentAttemptAssistant,
     assistantTexts,
@@ -346,16 +303,16 @@ export function completeEmbeddedAttemptResult(
     ...(settledTurnFinalizationContext ? { settledTurnFinalizationContext } : {}),
     replayMetadata,
     currentAttemptReplayMetadata,
-    itemLifecycle: getItemLifecycle(),
-    assistantTurns: getAssistantTurnCount(),
+    itemLifecycle: subscription.getItemLifecycle(),
+    assistantTurns: subscription.getAssistantTurnCount(),
     setTerminalLifecycleMeta,
     bootstrapPromptWarningSignaturesSeen: bootstrapPromptWarning.warningSignaturesSeen,
     bootstrapPromptWarningSignature: bootstrapPromptWarning.signature,
     assistantTexts,
     answerSegments: subscription.answerSegments,
-    latestMcpAppChannelView: getLatestMcpAppChannelView(),
-    latestMcpConnectAction: getLatestMcpConnectAction(),
-    lastAssistantTextMessageIndex: getLastAssistantTextMessageIndex(),
+    latestMcpAppChannelView: subscription.getLatestMcpAppChannelView(),
+    latestMcpConnectAction: subscription.getLatestMcpConnectAction(),
+    lastAssistantTextMessageIndex: subscription.getLastAssistantTextMessageIndex(),
     toolMetas: toolMetasNormalized,
     acceptedSessionSpawns,
     lastToolError,
@@ -363,7 +320,7 @@ export function completeEmbeddedAttemptResult(
     didSendDeterministicApprovalPrompt: didSendDeterministicApprovalPromptNow,
     messagingToolSentTexts: replayEvidence.messagingToolSentTexts,
     messagingToolSentMediaUrls,
-    messagingToolSentTargets: getMessagingToolSentTargets(),
+    messagingToolSentTargets: subscription.getMessagingToolSentTargets(),
     messagingToolSourceReplyPayloads,
     heartbeatToolResponse,
     sourceReplyDelivered: subscription.getSourceReplyDelivered(),
@@ -377,8 +334,8 @@ export function completeEmbeddedAttemptResult(
       state.lastAssistant?.errorMessage &&
       isCloudCodeAssistFormatError(state.lastAssistant.errorMessage),
     ),
-    compactionCount: getCompactionCount(),
-    compactionTokensAfter: getLastCompactionTokensAfter(),
+    compactionCount: subscription.getCompactionCount(),
+    compactionTokensAfter: subscription.getLastCompactionTokensAfter(),
     clientToolCalls,
     yieldDetected: state.yieldDetected || undefined,
   };
@@ -389,7 +346,7 @@ export function completeEmbeddedAttemptResult(
   const pendingToolMediaPayloadCount = hasVisiblePendingToolMediaReply(pendingToolMediaReply)
     ? 1
     : 0;
-  const visibleBlockReplyCount = getVisibleBlockReplyCount();
+  const visibleBlockReplyCount = subscription.getVisibleBlockReplyCount();
   const silentToolResultReplyPayload = resolveSilentToolResultReplyPayload({
     isCronTrigger: attempt.trigger === "cron",
     payloadCount: pendingToolMediaPayloadCount,
