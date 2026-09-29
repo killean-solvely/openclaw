@@ -100,8 +100,14 @@ export async function prepareNodeClaudeSkillSession(io: OpenClawPluginNodeHostCo
       if (!call) {
         throw new Error("Claude Workshop response has no pending caller.");
       }
-      pending.delete(value.id);
-      call.resolve(CallToolResultSchema.parse(value.result));
+      try {
+        call.resolve(CallToolResultSchema.parse(value.result));
+      } catch (error) {
+        call.reject(error);
+        throw error;
+      } finally {
+        pending.delete(value.id);
+      }
     });
     const init = await initialized.promise;
     assertCurrent();
