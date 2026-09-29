@@ -529,6 +529,7 @@ function buildFailedCandidateAttempt(
         : described.message,
     reason: described.reason ?? "unknown",
     authMode: described.authMode,
+    authOwner: described.authOwner,
     status: described.status,
     code: described.code,
   };
@@ -645,6 +646,7 @@ export function throwFallbackFailureSummary(params: {
     model: lastAttempt?.model,
     // Recovery must not infer OAuth from the provider after candidate errors collapse here.
     authMode: lastAttempt?.authMode,
+    authOwner: lastAttempt?.authOwner,
     status: lastAttempt?.status,
     code: lastAttempt?.code,
     cause: params.lastError instanceof Error ? params.lastError : undefined,

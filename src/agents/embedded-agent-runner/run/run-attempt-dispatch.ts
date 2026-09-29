@@ -10,6 +10,7 @@ import { resolveAdmittedRunActiveAssertion } from "../../admitted-run-context.js
 import { createAgentHarnessCompletionScope } from "../../agent-harness-completion-scope.js";
 import type { ToolOutcomeObserver } from "../../agent-tools.before-tool-call.js";
 import { resolveDelegationCapability } from "../../delegation-capability.js";
+import { coerceToFailoverError } from "../../failover-error.js";
 import { agentHarnessBuildsOpenClawTools } from "../../harness/tool-surface.js";
 import { applyAuthHeaderOverride, applyLocalNoAuthHeaderOverride } from "../../model-auth.js";
 import { recordAdmittedModelRoutingDecision } from "../../model-routing-decision.js";
@@ -116,6 +117,11 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     resolveRunAttemptAuthProfileStore,
   } = preparedRuntime;
   const runtime = preparedRuntime.snapshot();
+  const authOwner = runtime.agentHarness.resolveAuthOwnership?.({
+    config: params.config ?? {},
+    agentId: workspaceResolution.agentId,
+    provider,
+  });
   const effectiveModel = attachModelProviderRuntimePluginHandle(
     runtime.effectiveModel,
     runtime.providerRuntimeHandle,
@@ -689,7 +695,10 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
     () => runEmbeddedAttemptWithBackend(attemptParams, nativeSessionRuntime, params.media),
   )
     .catch((err: unknown): never => {
-      throw input.getPostCompactionAbortError() ?? err;
+      const failure = input.getPostCompactionAbortError() ?? err;
+      throw authOwner
+        ? (coerceToFailoverError(failure, { provider, model: modelId, authOwner }) ?? failure)
+        : failure;
     })
     .finally(() => {
       attemptControls.close();
@@ -699,6 +708,14 @@ export async function prepareAndDispatchEmbeddedRunAttempt(input: {
   const postCompactionAbortError = input.getPostCompactionAbortError();
   if (postCompactionAbortError) {
     throw postCompactionAbortError;
+  }
+  if (authOwner && rawAttempt.terminal.kind === "failed") {
+    rawAttempt.terminal = {
+      ...rawAttempt.terminal,
+      error:
+        coerceToFailoverError(rawAttempt.terminal.error, { provider, model: modelId, authOwner }) ??
+        rawAttempt.terminal.error,
+    };
   }
   return {
     dispatchedAttempt: { rawAttempt, preparedAttempt: attemptParams },

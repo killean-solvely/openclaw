@@ -9,6 +9,7 @@ import { isAgentRunStaleLifecycleError } from "../infra/agent-lifecycle-error.js
 import { copyErrorDiagnostic } from "../infra/error-diagnostics.js";
 import { collectErrorGraphCandidates, formatErrorMessage, readErrorName } from "../infra/errors.js";
 import { failoverReasonFromClassification } from "./failover/classification-rules.js";
+import { findHostManagedAuthFailure, renderHostManagedAuthFailureCopy } from "./failover/auth-error-copy.js";
 import {
   classifyFailoverSignal,
   extractFailoverSignalDetails,
@@ -507,6 +508,10 @@ export function buildFailoverRemediationHint(err: unknown): string | undefined {
   if (err.reason !== "auth" && err.reason !== "auth_permanent") {
     return undefined;
   }
+  const hostAuthCopy = renderHostManagedAuthFailureCopy(err);
+  if (hostAuthCopy) {
+    return hostAuthCopy;
+  }
   const provider = err.provider?.trim();
   if (!provider) {
     return undefined;
@@ -558,6 +563,7 @@ export function describeFailoverError(err: unknown): {
   model?: string;
   profileId?: string;
   authMode?: string;
+  authOwner?: "host";
   sessionId?: string;
   lane?: string;
 } {
@@ -575,6 +581,7 @@ export function describeFailoverError(err: unknown): {
       model: err.model,
       profileId: err.profileId,
       authMode: err.authMode,
+      authOwner: err.authOwner,
       sessionId: err.sessionId,
       lane: err.lane,
     };
@@ -587,6 +594,7 @@ export function describeFailoverError(err: unknown): {
     status: signal.status,
     code: signal.code,
     provider: signal.provider,
+    authOwner: findHostManagedAuthFailure(err)?.authOwner,
   };
 }
 
@@ -595,6 +603,7 @@ type FailoverErrorContext = {
   model?: string;
   profileId?: string;
   authMode?: string;
+  authOwner?: "host";
   sessionId?: string;
   lane?: string;
   timeout?: FailoverError["timeout"];
@@ -616,6 +625,7 @@ export function coerceToFailoverError(
     if (
       !Object.is(status, err.status) ||
       (context?.authMode && !err.authMode) ||
+      (context?.authOwner && !err.authOwner) ||
       (context?.timeout && !err.timeout)
     ) {
       const message = typeof err.message === "string" ? err.message : String(err);
@@ -625,6 +635,7 @@ export function coerceToFailoverError(
         model: err.model,
         profileId: err.profileId,
         authMode: err.authMode ?? context?.authMode,
+        authOwner: err.authOwner ?? context?.authOwner,
         status,
         code: err.code,
         rawError: err.rawError,
@@ -663,6 +674,7 @@ export function coerceToFailoverError(
     model: context?.model,
     profileId: context?.profileId,
     authMode: context?.authMode,
+    authOwner: context?.authOwner ?? findHostManagedAuthFailure(err)?.authOwner,
     sessionId: context?.sessionId,
     lane: context?.lane,
     status,

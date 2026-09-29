@@ -290,6 +290,7 @@ async function runWithModelFallbackInternal<T>(
       prepareAgentHarnessRuntime: params.prepareAgentHarnessRuntime,
       ...candidate,
     });
+    const candidateAuthOwner = candidateHarnessAuth.authOwner;
     const isPrimary = candidate.routeOrigin === "requested";
     const requestedModel =
       requestedCandidate !== undefined &&
@@ -315,6 +316,7 @@ async function runWithModelFallbackInternal<T>(
         reason,
         code: MODEL_FALLBACK_SKIPPED_CODE,
         authMode,
+        authOwner: candidateAuthOwner,
       });
     const recordFailure = async (error: unknown, next: ModelFallbackCandidate | undefined) => {
       await observeFailedCandidate({ attempts, ...candObs, error, nextCandidate: next });
@@ -378,9 +380,11 @@ async function runWithModelFallbackInternal<T>(
             authScope: candidateAuthScope,
           }) ?? "auth";
         const reauthCommand = buildProviderReauthCommand(candidate.provider);
-        const reauthHint = reauthCommand
-          ? `run \`${reauthCommand}\` to re-authenticate`
-          : "re-authenticate that provider";
+        const reauthHint = candidateAuthOwner === "host"
+          ? "the app-server host manages credentials; ask its operator to check authentication"
+          : reauthCommand
+            ? `run \`${reauthCommand}\` to re-authenticate`
+            : "re-authenticate that provider";
         const error = `Skipping ${candidate.provider}/${candidate.model}: recent ${skipReason} failure in this session (${reauthHint})`;
         pushSkippedAttempt(error, skipReason as FailoverReason);
         await observeCandidateDecision("skip_candidate", {
@@ -623,6 +627,7 @@ async function runWithModelFallbackInternal<T>(
       coerceToFailoverError(err, {
         ...candidateRef,
         ...runAttribution,
+        authOwner: candidateAuthOwner,
       }) ?? err;
 
     // Jump to later live selections; stale targets remain classified failures.

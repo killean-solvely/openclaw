@@ -1,3 +1,5 @@
+import { projectChatErrorDetail } from "../../packages/gateway-protocol/src/schema/logs-chat.js";
+import { renderHostManagedAuthFailureCopy } from "../agents/failover/auth-error-copy.js";
 import { classifyFailoverReasonCore } from "../agents/failover/classify-core.js";
 import { isAuthErrorMessage } from "../agents/failover/message-patterns.js";
 import { formatRawAssistantErrorForUi } from "../shared/assistant-error-format.js";
@@ -154,7 +156,20 @@ export function createTuiRunLifecycle(context: TuiRunLifecycleContext) {
     }
   };
 
-  const resolveAuthErrorHint = (errorMessage: string): string | undefined => {
+  const resolveAuthErrorHint = (errorMessage: string, errorDetail?: unknown): string | undefined => {
+    const detail = projectChatErrorDetail(errorDetail);
+    if (detail?.authOwner === "host") {
+      const reason = detail.failoverReason;
+      // Ownership is an explicit backend fact, never inferred from diagnostic text.
+      return renderHostManagedAuthFailureCopy({
+        authOwner: detail.authOwner,
+        authFailure: detail.providerRuntimeFailureKind === "auth_refresh",
+        reason:
+          reason === "auth" || reason === "auth_permanent" || reason === "session_expired"
+            ? reason
+            : undefined,
+      });
+    }
     // Cold provider classification must not block errors that cannot receive an auth hint.
     if (!localMode || !isAuthErrorMessage(errorMessage)) {
       return undefined;
@@ -370,6 +385,7 @@ export function createTuiRunLifecycle(context: TuiRunLifecycleContext) {
   const renderTerminalRunError = (params: {
     runId: string;
     errorMessage: string;
+    errorDetail?: unknown;
     requireActiveOrPending?: boolean;
   }): boolean => {
     const { runId, errorMessage } = params;
@@ -383,7 +399,8 @@ export function createTuiRunLifecycle(context: TuiRunLifecycleContext) {
     }
     const renderedError = formatRawAssistantErrorForUi(errorMessage);
     chatLog.dismissPendingSystem(runId);
-    const displayMessage = resolveAuthErrorHint(errorMessage) ?? `run error: ${renderedError}`;
+    const displayMessage =
+      resolveAuthErrorHint(errorMessage, params.errorDetail) ?? `run error: ${renderedError}`;
     liveTerminalErrorMessages.set(runId, displayMessage);
     chatLog.addSystem(displayMessage);
     runCoordinator.noteFinalizedRun(runId, { displayedFinal: true });
@@ -392,11 +409,15 @@ export function createTuiRunLifecycle(context: TuiRunLifecycleContext) {
     return true;
   };
 
-  const scheduleTerminalLifecycleError = (runId: string, errorMessage: string) => {
+  const scheduleTerminalLifecycleError = (
+    runId: string,
+    errorMessage: string,
+    errorDetail?: unknown,
+  ) => {
     clearPendingTerminalLifecycleError(runId);
     const timer = setTimeout(() => {
       pendingTerminalLifecycleErrors.delete(runId);
-      if (renderTerminalRunError({ runId, errorMessage, requireActiveOrPending: true })) {
+      if (renderTerminalRunError({ runId, errorMessage, errorDetail, requireActiveOrPending: true })) {
         tui.requestRender(true);
       }
     }, LIFECYCLE_ERROR_RETRY_GRACE_MS);

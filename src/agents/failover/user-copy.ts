@@ -16,6 +16,8 @@ import {
 import { formatExecDeniedUserMessage } from "../exec-approval-result.js";
 import type { CliTimeoutContext, FallbackAttemptRecord } from "../failover-error.js";
 import { ERROR_PREFIX_RE } from "./assistant-request-failure-copy.js";
+import { renderHostManagedAuthFailureCopy } from "./auth-error-copy.js";
+export { renderHostManagedAuthFailureCopy } from "./auth-error-copy.js";
 import { classifyFailoverReasonCore } from "./classify-core.js";
 import {
   isPeriodicUsageLimitErrorMessage,
@@ -325,6 +327,7 @@ export function resolveProviderRequestFailureCopy(params: {
   facet: ProviderRequestFacet | null;
   status?: number;
   technicalMessage: string;
+  authOwner?: "host";
 }) {
   const code = resolveProviderRequestFailureCode(params);
   if (!code) {
@@ -332,7 +335,11 @@ export function resolveProviderRequestFailureCopy(params: {
   }
   return {
     code,
-    userMessage: PROVIDER_REQUEST_COPY[code],
+    userMessage:
+      renderHostManagedAuthFailureCopy({
+        authOwner: params.authOwner,
+        reason: params.classification?.kind === "reason" ? params.classification.reason : undefined,
+      }) ?? PROVIDER_REQUEST_COPY[code],
     technicalMessage: params.technicalMessage,
   };
 }
