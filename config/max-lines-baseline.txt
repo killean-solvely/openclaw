@@ -190,7 +190,6 @@ extensions/slack/src/monitor/provider.ts
 extensions/slack/src/monitor/replies.test.ts
 extensions/slack/src/monitor/slash.test.ts
 extensions/slack/src/monitor/slash.ts
-extensions/slack/src/send.blocks.test.ts
 extensions/slack/src/send.ts
 extensions/telegram/src/action-runtime.ts
 extensions/telegram/src/bot-message-context.session.ts
